@@ -79,17 +79,10 @@ create policy "profiles_select_own"
   on public.profiles for select
   using (auth.uid () = id);
 
--- profiles: öğretmen, kendisine bağlı öğrencileri görebilir
+-- profiles: öğretmen, kendisine bağlı öğrencileri görebilir (profiles üzerinde tekrar SELECT yok; RLS özyinelemesi olmaz)
 create policy "profiles_select_students_for_teacher"
   on public.profiles for select
-  using (
-    exists (
-      select 1 from public.profiles t
-      where t.id = auth.uid ()
-        and t.role = 'teacher'
-        and public.profiles.teacher_id = t.id
-    )
-  );
+  using (teacher_id = auth.uid ());
 
 -- profiles: kendi kaydını güncelleme
 create policy "profiles_update_own"

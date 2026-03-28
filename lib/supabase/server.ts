@@ -18,8 +18,30 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             );
           } catch {
-            // Server Component içinde set edilemeyebilir; middleware session yenilemesi kullanılır
+            // Server Component’te çerez yazılamayabilir; Server Action veya proxy oturumu yeniler
           }
+        },
+      },
+    }
+  );
+}
+
+/** Server Actions: oturum çerezlerinin güvenilir şekilde yazılması için */
+export async function createServerActionClient() {
+  const cookieStore = await cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
         },
       },
     }
