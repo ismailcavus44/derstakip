@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { StudentTasksPanel } from "@/app/student/student-tasks-panel";
 import { StudentAppHeader } from "@/components/student-app-header";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -14,20 +14,11 @@ function isMissingColumnError(err: { message?: string } | null): boolean {
 }
 
 export default async function StudentPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, profile, supabase } = await getCachedAuth();
 
   if (!user) {
     redirect("/login");
   }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
 
   const fullSelect = `
       id,

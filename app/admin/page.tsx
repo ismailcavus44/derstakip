@@ -1,19 +1,9 @@
-import { redirect } from "next/navigation";
-
 import { getAdminDashboardData } from "@/app/admin/actions";
 import { AdminPanel } from "@/app/admin/admin-panel";
-import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
   const data = await getAdminDashboardData();
 
   if (!data) {

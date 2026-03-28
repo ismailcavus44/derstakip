@@ -59,11 +59,12 @@ export async function loginAction(
     return { error: "Oturum alınamadı." };
   }
 
-  let { data: profile, error: profileError } = await supabase
+  const { data: profileData, error: profileError } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", user.id)
     .maybeSingle();
+  let profile = profileData;
 
   if (profileError) {
     await supabase.auth.signOut();

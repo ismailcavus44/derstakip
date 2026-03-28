@@ -1,23 +1,14 @@
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/app/login/login-form";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
 
 export default async function LoginPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, profile } = await getCachedAuth();
 
-  if (user) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profile?.role === "teacher") redirect("/teacher");
-    if (profile?.role === "student") redirect("/student");
+  if (user && profile) {
+    if (profile.role === "teacher") redirect("/teacher");
+    if (profile.role === "student") redirect("/student");
   }
 
   return (

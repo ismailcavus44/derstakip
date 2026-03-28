@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
 import { sendTaskAssignedEmail } from "@/lib/email/send-task-assigned-email";
 import { getNotificationEmailForStudent } from "@/lib/email/student-notify-email";
-import { createClient, createServerActionClient } from "@/lib/supabase/server";
+import { createServerActionClient } from "@/lib/supabase/server";
 
 export type StudentRow = {
   id: string;
@@ -140,10 +141,7 @@ async function revertStudentProgressForDeletedTask(
 }
 
 export async function getStudents(): Promise<StudentRow[]> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCachedAuth();
 
   if (!user) return [];
 
@@ -163,10 +161,7 @@ export async function getStudents(): Promise<StudentRow[]> {
 }
 
 export async function getTasks(): Promise<TaskWithStudent[]> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCachedAuth();
 
   if (!user) return [];
 
@@ -731,10 +726,7 @@ export type TeacherNotificationRow = {
 export async function getTeacherNotifications(): Promise<
   TeacherNotificationRow[]
 > {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCachedAuth();
 
   if (!user) return [];
 

@@ -6,7 +6,7 @@ import { getCurriculumTree } from "@/app/curriculum/actions";
 import { getStudents } from "@/app/teacher/actions";
 import { StudentProgressAccordion } from "@/app/student/ilerleme/student-progress-accordion";
 import { Card, CardContent } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +17,7 @@ type PageProps = {
 
 export default async function TeacherIlerlemePage({ searchParams }: PageProps) {
   const sp = searchParams ? await searchParams : {};
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getCachedAuth();
 
   if (!user) {
     redirect("/login");
@@ -63,17 +60,20 @@ export default async function TeacherIlerlemePage({ searchParams }: PageProps) {
     redirect(`/teacher/ilerleme?ogrenci=${firstId}`);
   }
 
-  const { subjects, topics } = await getCurriculumTree();
+  const [{ subjects, topics }, completionsRes, qstatsRes] = await Promise.all([
+    getCurriculumTree(),
+    supabase
+      .from("student_topic_completions")
+      .select("topic_id")
+      .eq("student_id", selectedId),
+    supabase
+      .from("student_topic_question_stats")
+      .select("topic_id, questions_solved")
+      .eq("student_id", selectedId),
+  ]);
 
-  const { data: completions } = await supabase
-    .from("student_topic_completions")
-    .select("topic_id")
-    .eq("student_id", selectedId);
-
-  const { data: qstats } = await supabase
-    .from("student_topic_question_stats")
-    .select("topic_id, questions_solved")
-    .eq("student_id", selectedId);
+  const completions = completionsRes.data;
+  const qstats = qstatsRes.data;
 
   const completedTopicIds = (completions ?? []).map((c) => c.topic_id);
   const solvedByTopicId: Record<string, number> = {};

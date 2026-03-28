@@ -7,7 +7,7 @@ import {
   type ScheduleTaskOption,
 } from "@/app/student/ders-programi/ders-programi-calendar";
 import { StudentAppHeader } from "@/components/student-app-header";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -28,29 +28,32 @@ function taskFieldsFromJoin(
 }
 
 export default async function DersProgramiPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, profile, supabase } = await getCachedAuth();
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
   const displayName =
     profile?.full_name?.trim() || user.email?.split("@")[0] || "Öğrenci";
 
-  const { data: taskRows } = await supabase
-    .from("tasks")
-    .select("id, title, status")
-    .eq("student_id", user.id)
-    .order("created_at", { ascending: false });
+  const [taskRes, entRes] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select("id, title, status")
+      .eq("student_id", user.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("student_schedule_entries")
+      .select(
+        "id, task_id, scheduled_date, start_minutes, end_minutes, tasks(title, description, status)"
+      )
+      .eq("student_id", user.id)
+      .order("scheduled_date", { ascending: true })
+      .order("start_minutes", { ascending: true }),
+  ]);
+
+  const taskRows = taskRes.data;
 
   const tasks: ScheduleTaskOption[] =
     (taskRows ?? []).map((t) => ({
@@ -61,15 +64,6 @@ export default async function DersProgramiPage() {
 
   let entries: ScheduleEntryVM[] = [];
   let migrationHint: string | null = null;
-
-  const entRes = await supabase
-    .from("student_schedule_entries")
-    .select(
-      "id, task_id, scheduled_date, start_minutes, end_minutes, tasks(title, description, status)"
-    )
-    .eq("student_id", user.id)
-    .order("scheduled_date", { ascending: true })
-    .order("start_minutes", { ascending: true });
 
   if (entRes.error) {
     const msg = entRes.error.message?.toLowerCase() ?? "";

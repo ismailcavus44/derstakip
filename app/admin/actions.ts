@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient, createServerActionClient } from "@/lib/supabase/server";
+import { getCachedAuth } from "@/lib/auth/cached-auth";
+import { createServerActionClient } from "@/lib/supabase/server";
 import { createServerAdminClient } from "@/lib/supabase/admin";
 
 export type AdminTeacherRow = { id: string; full_name: string };
@@ -41,19 +42,8 @@ export async function getAdminDashboardData(): Promise<{
   teachers: AdminTeacherRow[];
   students: AdminStudentRow[];
 } | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profile?.role !== "admin") return null;
+  const { user, profile } = await getCachedAuth();
+  if (!user || profile?.role !== "admin") return null;
 
   let admin;
   try {
@@ -132,19 +122,8 @@ export async function getAdminStudentStats(
   questionStats: AdminQuestionStat[];
   tablesMissing: boolean;
 } | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (profile?.role !== "admin") return null;
+  const { user, profile } = await getCachedAuth();
+  if (!user || profile?.role !== "admin") return null;
 
   let admin;
   try {
