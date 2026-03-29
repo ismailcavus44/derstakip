@@ -3,7 +3,9 @@
 import { CheckCircle2, Circle, MoreVertical } from "lucide-react";
 import { useState, useTransition } from "react";
 
+import type { TopicRow } from "@/app/curriculum/actions";
 import { completeTask } from "@/app/student/actions";
+import { DenemeWrongTopicsChecklist } from "@/app/student/deneme-wrong-topics-checklist";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,9 +27,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 export type StudentTaskRow = {
@@ -36,15 +41,22 @@ export type StudentTaskRow = {
   description: string | null;
   status: "pending" | "completed";
   created_at: string;
-  task_kind: "soru_cozumu" | "konu_anlatimi" | null;
+  task_kind: "soru_cozumu" | "konu_anlatimi" | "deneme_sinavi" | null;
   question_count: number | null;
   followup_question_count: number | null;
+  deneme_branch: string | null;
+  deneme_target_minutes: number | null;
+  deneme_correct: number | null;
+  deneme_wrong: number | null;
+  deneme_actual_minutes: number | null;
+  subject_id: string | null;
   subject_name: string | null;
   topic_name: string | null;
 };
 
 type Props = {
   tasks: StudentTaskRow[];
+  topics: TopicRow[];
 };
 
 function taskMetaLine(task: StudentTaskRow) {
@@ -55,6 +67,8 @@ function taskMetaLine(task: StudentTaskRow) {
     parts.push("Konu anlatımı");
   } else if (task.task_kind === "soru_cozumu") {
     parts.push("Soru çözümü");
+  } else if (task.task_kind === "deneme_sinavi") {
+    parts.push("Deneme sınavı");
   }
   return parts.length ? parts.join(" · ") : null;
 }
@@ -73,10 +87,12 @@ function formatDate(iso: string) {
   }
 }
 
-export function StudentTasksPanel({ tasks }: Props) {
+export function StudentTasksPanel({ tasks, topics }: Props) {
   const [detailTask, setDetailTask] = useState<StudentTaskRow | null>(null);
   const [confirmTask, setConfirmTask] = useState<StudentTaskRow | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [denemeTask, setDenemeTask] = useState<StudentTaskRow | null>(null);
+  const [denemeError, setDenemeError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const detailMeta = detailTask ? taskMetaLine(detailTask) : null;
@@ -85,8 +101,28 @@ export function StudentTasksPanel({ tasks }: Props) {
   const completed = tasks.filter((t) => t.status === "completed");
 
   function openConfirmFromCard(task: StudentTaskRow) {
+    if (task.task_kind === "deneme_sinavi") {
+      setDenemeTask(task);
+      setDenemeError(null);
+      return;
+    }
     setConfirmTask(task);
     setConfirmError(null);
+  }
+
+  function handleDenemeSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!denemeTask) return;
+    setDenemeError(null);
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      const res = await completeTask(denemeTask.id, fd);
+      if (res?.error) {
+        setDenemeError(res.error);
+        return;
+      }
+      setDenemeTask(null);
+    });
   }
 
   function handleConfirmComplete() {
@@ -162,6 +198,13 @@ export function StudentTasksPanel({ tasks }: Props) {
                             task.question_count != null && (
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {task.question_count} soru
+                              </p>
+                            )}
+                          {task.task_kind === "deneme_sinavi" &&
+                            task.deneme_target_minutes != null && (
+                              <p className="mt-1 text-xs text-sky-800 dark:text-sky-200">
+                                Önerilen süre (tavsiye):{" "}
+                                {task.deneme_target_minutes} dk
                               </p>
                             )}
                           {task.description?.trim() && (
@@ -276,12 +319,136 @@ export function StudentTasksPanel({ tasks }: Props) {
                   {detailTask.question_count}
                 </p>
               )}
+            {detailTask?.task_kind === "deneme_sinavi" && (
+              <div className="space-y-2 rounded-2xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-sky-950 dark:text-sky-100">
+                {detailTask.deneme_target_minutes != null && (
+                  <p>
+                    <span className="font-medium">Önerilen süre (tavsiye): </span>
+                    {detailTask.deneme_target_minutes} dk
+                  </p>
+                )}
+                {detailTask.status === "completed" &&
+                  detailTask.deneme_correct != null &&
+                  detailTask.deneme_wrong != null &&
+                  detailTask.deneme_actual_minutes != null && (
+                    <p className="text-sm">
+                      Sonuç: {detailTask.deneme_correct} doğru,{" "}
+                      {detailTask.deneme_wrong} yanlış —{" "}
+                      {detailTask.deneme_actual_minutes} dk
+                    </p>
+                  )}
+              </div>
+            )}
             <p className="whitespace-pre-wrap">
               {detailTask?.description?.trim()
                 ? detailTask.description
                 : "Açıklama yok."}
             </p>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!denemeTask}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDenemeTask(null);
+            setDenemeError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-3xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold">
+              Denemeyi tamamla
+            </DialogTitle>
+            <DialogDescription className="text-left text-sm">
+              {denemeTask?.title}. Doğru ve yanlış sayınız ile denemeyi kaç
+              dakikada bitirdiğinizi girin (ilerleme takibi için).
+            </DialogDescription>
+          </DialogHeader>
+          {denemeTask && (
+            <form
+              key={denemeTask.id}
+              onSubmit={handleDenemeSubmit}
+              className="grid gap-4"
+            >
+              {denemeTask.deneme_target_minutes != null && (
+                <p className="text-xs text-muted-foreground">
+                  Önerilen süre (tavsiye): {denemeTask.deneme_target_minutes} dk
+                  — gerçek sürenizi aşağıya yazın.
+                </p>
+              )}
+              <div className="grid gap-2">
+                <Label htmlFor="st-deneme-d">Doğru</Label>
+                <Input
+                  id="st-deneme-d"
+                  name="deneme_correct"
+                  type="number"
+                  min={0}
+                  max={500}
+                  required
+                  className="rounded-2xl"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="st-deneme-y">Yanlış</Label>
+                <Input
+                  id="st-deneme-y"
+                  name="deneme_wrong"
+                  type="number"
+                  min={0}
+                  max={500}
+                  required
+                  className="rounded-2xl"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="st-deneme-m">Süre (dakika)</Label>
+                <Input
+                  id="st-deneme-m"
+                  name="deneme_actual_minutes"
+                  type="number"
+                  min={1}
+                  max={720}
+                  required
+                  className="rounded-2xl"
+                />
+              </div>
+              <DenemeWrongTopicsChecklist
+                subjectId={denemeTask.subject_id}
+                topics={topics}
+              />
+              {denemeError && (
+                <p className="text-sm text-destructive" role="alert">
+                  {denemeError}
+                </p>
+              )}
+              <DialogFooter className="gap-2 sm:gap-0">
+                <button
+                  type="button"
+                  className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "rounded-2xl"
+                  )}
+                  disabled={isPending}
+                  onClick={() => {
+                    setDenemeTask(null);
+                    setDenemeError(null);
+                  }}
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className={cn(buttonVariants(), "rounded-2xl")}
+                  disabled={isPending}
+                >
+                  {isPending ? "Kaydediliyor…" : "Tamamla"}
+                </button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 

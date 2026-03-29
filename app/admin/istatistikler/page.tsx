@@ -5,8 +5,6 @@ import { AdminIstatistiklerTables } from "@/app/admin/admin-istatistikler-client
 import { getAdminDashboardData, getAdminStudentStats } from "@/app/admin/actions";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
 type PageProps = {
   searchParams?: Promise<{ ogrenci?: string }>;
 };

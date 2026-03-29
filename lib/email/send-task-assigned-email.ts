@@ -36,13 +36,21 @@ export type SendTaskAssignedEmailInput = {
   teacherName: string;
   subjectName: string;
   topicName: string;
-  taskKind: "soru_cozumu" | "konu_anlatimi";
+  taskKind: "soru_cozumu" | "konu_anlatimi" | "deneme_sinavi";
   questionCount: number | null;
   followupQuestionCount: number | null;
+  denemeTargetMinutes: number | null;
   description: string | null;
 };
 
 function buildQuestionLine(input: SendTaskAssignedEmailInput): string | null {
+  if (input.taskKind === "deneme_sinavi") {
+    const m = input.denemeTargetMinutes;
+    if (m != null && m > 0) {
+      return `Önerilen süre (tavsiye): ${m} dk — tamamlayınca gerçek sürenizi ve D/Y sonucunu panelden girin.`;
+    }
+    return "Deneme sınavı — tamamlayınca doğru/yanlış ve süreyi girin.";
+  }
   if (input.taskKind === "soru_cozumu") {
     const n = input.questionCount;
     if (n != null && n > 0) {
@@ -89,7 +97,11 @@ export async function sendTaskAssignedEmail(
   });
 
   const taskKindLabel =
-    input.taskKind === "konu_anlatimi" ? "Konu anlatımı" : "Soru çözümü";
+    input.taskKind === "konu_anlatimi"
+      ? "Konu anlatımı"
+      : input.taskKind === "deneme_sinavi"
+        ? "Deneme sınavı"
+        : "Soru çözümü";
   const dashboardUrl = `${getAppBaseUrl()}/student`;
 
   const templateParams: TaskAssignedTemplateParams = {
@@ -102,15 +114,25 @@ export async function sendTaskAssignedEmail(
     description: input.description,
     dashboardUrl,
     year: new Date().getFullYear(),
+    taskKind: input.taskKind,
+    denemeTargetMinutes:
+      input.taskKind === "deneme_sinavi"
+        ? (input.denemeTargetMinutes ?? null)
+        : null,
   };
 
   const html = buildTaskAssignedEmailHtml(templateParams);
   const text = buildTaskAssignedEmailText(templateParams);
 
+  const mailSubject =
+    input.taskKind === "deneme_sinavi"
+      ? `Yeni deneme sınavı: ${input.subjectName} — Derstakip`
+      : `Yeni görev: ${input.subjectName} — Derstakip`;
+
   await transporter.sendMail({
     from,
     to: input.to,
-    subject: `Yeni görev: ${input.subjectName} — Derstakip`,
+    subject: mailSubject,
     text,
     html,
   });

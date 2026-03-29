@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 const links = [
   { href: "/admin", label: "Öğrenci yönetimi" },
+  { href: "/admin/ogrenci-sorulari", label: "Öğrenci soruları" },
   { href: "/admin/istatistikler", label: "İstatistikler" },
 ];
 

@@ -4,7 +4,9 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
+import type { TopicRow } from "@/app/curriculum/actions";
 import { completeTask } from "@/app/student/actions";
+import { DenemeWrongTopicsChecklist } from "@/app/student/deneme-wrong-topics-checklist";
 import {
   createScheduleEntry,
   deleteScheduleEntry,
@@ -65,6 +67,12 @@ export type ScheduleEntryVM = {
   task_title: string;
   task_status: string;
   task_description: string | null;
+  task_kind: string | null;
+  task_subject_id: string | null;
+  deneme_target_minutes: number | null;
+  deneme_correct: number | null;
+  deneme_wrong: number | null;
+  deneme_actual_minutes: number | null;
 };
 
 function toIsoDate(d: Date): string {
@@ -133,12 +141,14 @@ function buildMonthCells(year: number, month: number): (Date | null)[] {
 type Props = {
   tasks: ScheduleTaskOption[];
   entries: ScheduleEntryVM[];
+  topics: TopicRow[];
   migrationHint?: string | null;
 };
 
 export function DersProgramiCalendar({
   tasks,
   entries,
+  topics,
   migrationHint,
 }: Props) {
   const router = useRouter();
@@ -238,6 +248,23 @@ export function DersProgramiCalendar({
     setDetailError(null);
     startTransition(async () => {
       const res = await completeTask(detailEntry.task_id);
+      if (res.error) {
+        setDetailError(res.error);
+        return;
+      }
+      setDetailEntry(null);
+      router.refresh();
+    });
+  }
+
+  function handleDenemeCompleteFromDetail(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!detailEntry || detailEntry.task_status !== "pending") return;
+    setDetailError(null);
+    const fd = new FormData(e.currentTarget);
+    const tid = detailEntry.task_id;
+    startTransition(async () => {
+      const res = await completeTask(tid, fd);
       if (res.error) {
         setDetailError(res.error);
         return;
@@ -563,6 +590,24 @@ export function DersProgramiCalendar({
                         ? "Tamamlandı"
                         : "Bekliyor"}
                     </p>
+                    {detailEntry.task_kind === "deneme_sinavi" &&
+                      detailEntry.deneme_target_minutes != null && (
+                        <p className="text-xs text-sky-800 dark:text-sky-200">
+                          Önerilen süre (tavsiye):{" "}
+                          {detailEntry.deneme_target_minutes} dk
+                        </p>
+                      )}
+                    {detailEntry.task_kind === "deneme_sinavi" &&
+                      detailEntry.task_status === "completed" &&
+                      detailEntry.deneme_correct != null &&
+                      detailEntry.deneme_wrong != null &&
+                      detailEntry.deneme_actual_minutes != null && (
+                        <p className="text-xs text-muted-foreground">
+                          {detailEntry.deneme_correct} doğru,{" "}
+                          {detailEntry.deneme_wrong} yanlış —{" "}
+                          {detailEntry.deneme_actual_minutes} dk
+                        </p>
+                      )}
                   </div>
                 </DialogHeader>
                 {detailError && (
@@ -575,16 +620,90 @@ export function DersProgramiCalendar({
                 )}
               </div>
               <div className="flex shrink-0 flex-col gap-2 border-t border-border/60 bg-muted/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:flex-wrap sm:justify-end sm:px-5 sm:py-4">
-                {detailEntry.task_status === "pending" && (
-                  <Button
-                    type="button"
-                    className="h-11 min-h-11 w-full rounded-full touch-manipulation sm:h-9 sm:min-h-0 sm:w-auto"
-                    disabled={pending}
-                    onClick={handleCompleteFromDetail}
-                  >
-                    {pending ? "…" : "Görevi tamamla"}
-                  </Button>
-                )}
+                {detailEntry.task_status === "pending" &&
+                  detailEntry.task_kind === "deneme_sinavi" && (
+                    <form
+                      key={detailEntry.task_id}
+                      onSubmit={handleDenemeCompleteFromDetail}
+                      className="flex w-full flex-col gap-3 sm:max-w-sm sm:self-end"
+                    >
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="grid gap-1">
+                          <Label
+                            htmlFor="cal-deneme-d"
+                            className="text-xs font-normal"
+                          >
+                            Doğru
+                          </Label>
+                          <Input
+                            id="cal-deneme-d"
+                            name="deneme_correct"
+                            type="number"
+                            min={0}
+                            max={500}
+                            required
+                            className="h-9 rounded-xl"
+                          />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label
+                            htmlFor="cal-deneme-y"
+                            className="text-xs font-normal"
+                          >
+                            Yanlış
+                          </Label>
+                          <Input
+                            id="cal-deneme-y"
+                            name="deneme_wrong"
+                            type="number"
+                            min={0}
+                            max={500}
+                            required
+                            className="h-9 rounded-xl"
+                          />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label
+                            htmlFor="cal-deneme-m"
+                            className="text-xs font-normal"
+                          >
+                            Dk
+                          </Label>
+                          <Input
+                            id="cal-deneme-m"
+                            name="deneme_actual_minutes"
+                            type="number"
+                            min={1}
+                            max={720}
+                            required
+                            className="h-9 rounded-xl"
+                          />
+                        </div>
+                      </div>
+                      <DenemeWrongTopicsChecklist
+                        subjectId={detailEntry.task_subject_id}
+                        topics={topics}
+                      />
+                      <Button
+                        type="submit"
+                        className="h-11 min-h-11 w-full rounded-full touch-manipulation sm:h-9 sm:min-h-0"
+                        disabled={pending}
+                      >
+                        {pending ? "…" : "Denemeyi tamamla"}
+                      </Button>
+                    </form>
+                  )}
+                {detailEntry.task_status === "pending" &&
+                  detailEntry.task_kind !== "deneme_sinavi" && (
+                    <Button
+                      type="button"
+                      className="h-11 min-h-11 w-full rounded-full touch-manipulation sm:h-9 sm:min-h-0 sm:w-auto"
+                      disabled={pending}
+                      onClick={handleCompleteFromDetail}
+                    >
+                      {pending ? "…" : "Görevi tamamla"}
+                    </Button>
+                  )}
                 <Button
                   type="button"
                   variant="destructive"

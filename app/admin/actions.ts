@@ -1,8 +1,20 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 
 import { getCachedAuth } from "@/lib/auth/cached-auth";
+import {
+  parseQuestionIssueKind,
+  type QuestionIssueKind,
+} from "@/lib/question-issue-kind";
+import {
+  MAX_QUESTION_ANSWER_BYTES,
+  QUESTION_ANSWER_ALLOWED_TYPES,
+  QUESTION_ANSWER_BUCKET,
+} from "@/lib/student-question-answers";
+import { STUDENT_QUESTION_BUCKET } from "@/lib/student-question-uploads";
 import { createServerActionClient } from "@/lib/supabase/server";
 import { createServerAdminClient } from "@/lib/supabase/admin";
 
@@ -462,4 +474,332 @@ export async function deleteStudentUser(studentId: string): Promise<ActionResult
 
   revalidatePath("/admin");
   return {};
+}
+
+export type AdminQuestionSubmissionRow = {
+  id: string;
+  student_id: string;
+  student_name: string;
+  teacher_name: string | null;
+  topic_name: string;
+  subject_name: string | null;
+  file_name: string;
+  content_type: string | null;
+  created_at: string;
+  answer_status: "pending" | "answered";
+  answered_at: string | null;
+  answer_file_name: string | null;
+  issue_kind: QuestionIssueKind;
+};
+
+function sanitizeAnswerFileBase(name: string): string {
+  const base = name
+    .replace(/^.*[/\\]/, "")
+    .replace(/[^\p{L}\p{N}._-]+/gu, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 80);
+  return base.trim() || "cevap";
+}
+
+export async function getAdminQuestionSubmissions(): Promise<
+  AdminQuestionSubmissionRow[]
+> {
+  const gate = await requireAdminProfile();
+  if (gate.error || !gate.user) return [];
+
+  let admin;
+  try {
+    admin = createServerAdminClient();
+  } catch {
+    return [];
+  }
+
+  const { data, error } = await admin
+    .from("student_question_submissions")
+    .select(
+      "id, student_id, topic_id, file_name, created_at, answer_status, answered_at, answer_file_name, issue_kind, profiles!student_question_submissions_student_id_fkey(full_name, teacher_id), topics(name, subjects(name))"
+    )
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    if (error.code !== "42P01" && error.code !== "PGRST205") {
+      console.error("getAdminQuestionSubmissions:", error.message);
+    }
+    return [];
+  }
+
+  type Raw = {
+    id: string;
+    student_id: string;
+    topic_id: string;
+    file_name: string;
+    content_type?: string | null;
+    created_at: string;
+    answer_status: string;
+    answered_at: string | null;
+    answer_file_name?: string | null;
+    issue_kind?: string | null;
+    profiles:
+      | { full_name: string | null; teacher_id: string | null }
+      | { full_name: string | null; teacher_id: string | null }[]
+      | null;
+    topics:
+      | {
+          name: string;
+          subjects:
+            | { name: string }
+            | { name: string }[]
+            | null;
+        }
+      | null
+      | unknown[];
+  };
+
+  const rows = (data ?? []) as Raw[];
+  const teacherIds = [
+    ...new Set(
+      rows
+        .map((r) => {
+          const p = Array.isArray(r.profiles) ? r.profiles[0] : r.profiles;
+          return p?.teacher_id ?? null;
+        })
+        .filter((id): id is string => !!id)
+    ),
+  ];
+
+  let teacherNameById = new Map<string, string>();
+  if (teacherIds.length > 0) {
+    const { data: teachers } = await admin
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", teacherIds);
+    teacherNameById = new Map(
+      (teachers ?? []).map((t) => [
+        t.id as string,
+        ((t.full_name as string) ?? "").trim() || "—",
+      ])
+    );
+  }
+
+  return rows.map((row) => {
+    const prof = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+    const top = Array.isArray(row.topics) ? row.topics[0] : row.topics;
+    const subj =
+      top && typeof top === "object" && "subjects" in top
+        ? (top as { subjects: unknown }).subjects
+        : null;
+    const subjectName = Array.isArray(subj)
+      ? (subj[0] as { name?: string })?.name
+      : (subj as { name?: string } | null)?.name;
+    const st = row.answer_status === "answered" ? "answered" : "pending";
+    return {
+      id: row.id,
+      student_id: row.student_id,
+      student_name: prof?.full_name?.trim() || "Öğrenci",
+      teacher_name: prof?.teacher_id
+        ? teacherNameById.get(prof.teacher_id) ?? null
+        : null,
+      topic_name:
+        top && typeof top === "object" && "name" in top
+          ? String((top as { name: string }).name)
+          : "Konu",
+      subject_name: subjectName ?? null,
+      file_name: row.file_name,
+      content_type: row.content_type ?? null,
+      created_at: row.created_at,
+      answer_status: st,
+      answered_at: row.answered_at,
+      answer_file_name: row.answer_file_name ?? null,
+      issue_kind: parseQuestionIssueKind(row.issue_kind),
+    };
+  });
+}
+
+/** Yönetici: öğrenci sorusuna cevap görseli yükler (JPEG/PNG/WebP). */
+export async function adminUploadSubmissionAnswer(
+  submissionId: string,
+  formData: FormData
+): Promise<ActionResult> {
+  const gate = await requireAdminProfile();
+  if (gate.error || !gate.user) return { error: gate.error ?? "Yetkisiz." };
+
+  const sid = submissionId?.trim();
+  if (!sid) return { error: "Geçersiz kayıt." };
+
+  const raw = formData.get("file");
+  if (!raw || typeof raw === "string") return { error: "Dosya seçin." };
+  const file = raw as File;
+  if (!file.size) return { error: "Dosya boş." };
+  if (file.size > MAX_QUESTION_ANSWER_BYTES) {
+    return { error: "Cevap görseli en fazla 10 MB olabilir." };
+  }
+  const mime = (file.type || "").toLowerCase();
+  if (!QUESTION_ANSWER_ALLOWED_TYPES.has(mime)) {
+    return { error: "Yalnızca JPEG, PNG veya WebP yükleyin." };
+  }
+
+  let admin;
+  try {
+    admin = createServerAdminClient();
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "SUPABASE_SERVICE_ROLE_KEY eksik.",
+    };
+  }
+
+  const { data: row, error: fetchErr } = await admin
+    .from("student_question_submissions")
+    .select("id, student_id, answer_storage_path")
+    .eq("id", sid)
+    .maybeSingle();
+
+  if (fetchErr) return { error: fetchErr.message };
+  if (!row) return { error: "Kayıt bulunamadı." };
+
+  const studentId = row.student_id as string;
+  const oldPath = row.answer_storage_path as string | null;
+
+  const safeBase = sanitizeAnswerFileBase(file.name);
+  const objectName = `${randomUUID()}_${safeBase}`;
+  const storagePath = `${studentId}/${sid}/${objectName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(QUESTION_ANSWER_BUCKET)
+    .upload(storagePath, file, {
+      contentType: mime,
+      upsert: false,
+    });
+
+  if (upErr) {
+    if (
+      upErr.message?.includes("Bucket not found") ||
+      upErr.message?.includes("not found")
+    ) {
+      return {
+        error:
+          "Cevap deposu yok. Supabase'de student-question-answers.sql çalıştırın.",
+      };
+    }
+    return { error: upErr.message };
+  }
+
+  if (oldPath) {
+    await admin.storage.from(QUESTION_ANSWER_BUCKET).remove([oldPath]);
+  }
+
+  const { error: updErr } = await admin
+    .from("student_question_submissions")
+    .update({
+      answer_status: "answered",
+      answer_storage_path: storagePath,
+      answer_file_name: file.name.slice(0, 200) || safeBase,
+      answer_content_type: mime,
+      answer_size_bytes: file.size,
+      answered_at: new Date().toISOString(),
+      answered_by: gate.user.id,
+    })
+    .eq("id", sid);
+
+  if (updErr) {
+    await admin.storage.from(QUESTION_ANSWER_BUCKET).remove([storagePath]);
+    if (updErr.code === "42703" || updErr.message?.includes("answer_status")) {
+      return {
+        error:
+          "Veritabanı güncel değil. student-question-answers.sql dosyasını çalıştırın.",
+      };
+    }
+    return { error: updErr.message };
+  }
+
+  revalidatePath("/admin/ogrenci-sorulari");
+  revalidatePath("/teacher/konu-eksikleri");
+  revalidatePath("/student/sorularim");
+  revalidatePath("/teacher/sorular");
+  return {};
+}
+
+export async function getAdminSubmissionQuestionDownloadUrl(
+  submissionId: string
+): Promise<{ error?: string; url?: string }> {
+  const gate = await requireAdminProfile();
+  if (gate.error || !gate.user) return { error: gate.error ?? "Yetkisiz." };
+
+  const sid = submissionId?.trim();
+  if (!sid) return { error: "Geçersiz kayıt." };
+
+  let admin;
+  try {
+    admin = createServerAdminClient();
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "SUPABASE_SERVICE_ROLE_KEY eksik.",
+    };
+  }
+
+  const { data: row, error } = await admin
+    .from("student_question_submissions")
+    .select("storage_path")
+    .eq("id", sid)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!row?.storage_path) return { error: "Dosya bulunamadı." };
+
+  const { data: signed, error: signErr } = await admin.storage
+    .from(STUDENT_QUESTION_BUCKET)
+    .createSignedUrl(row.storage_path as string, 3600);
+
+  if (signErr || !signed?.signedUrl) {
+    return { error: signErr?.message ?? "Bağlantı oluşturulamadı." };
+  }
+  return { url: signed.signedUrl };
+}
+
+export async function getAdminSubmissionAnswerDownloadUrl(
+  submissionId: string
+): Promise<{ error?: string; url?: string }> {
+  const gate = await requireAdminProfile();
+  if (gate.error || !gate.user) return { error: gate.error ?? "Yetkisiz." };
+
+  const sid = submissionId?.trim();
+  if (!sid) return { error: "Geçersiz kayıt." };
+
+  let admin;
+  try {
+    admin = createServerAdminClient();
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "SUPABASE_SERVICE_ROLE_KEY eksik.",
+    };
+  }
+
+  const { data: row, error } = await admin
+    .from("student_question_submissions")
+    .select("answer_storage_path, answer_status")
+    .eq("id", sid)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!row || row.answer_status !== "answered" || !row.answer_storage_path) {
+    return { error: "Bu kayıt için cevap görseli yok." };
+  }
+
+  const { data: signed, error: signErr } = await admin.storage
+    .from(QUESTION_ANSWER_BUCKET)
+    .createSignedUrl(row.answer_storage_path as string, 3600);
+
+  if (signErr || !signed?.signedUrl) {
+    return { error: signErr?.message ?? "Bağlantı oluşturulamadı." };
+  }
+  return { url: signed.signedUrl };
 }

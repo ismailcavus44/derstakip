@@ -9,11 +9,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { BookOpen, CalendarRange, House, Menu, TrendingUp } from "lucide-react";
+import {
+  BookOpen,
+  CalendarRange,
+  FileQuestion,
+  House,
+  Menu,
+  TrendingUp,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-export type StudentNavActive = "tasks" | "ilerleme" | "program";
+export type StudentNavActive = "tasks" | "ilerleme" | "program" | "sorularim";
 
 const navBtn =
   "inline-flex h-10 min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -90,6 +97,14 @@ export function StudentAppHeader({
         icon={<CalendarRange aria-hidden />}
       >
         Ders programı
+      </NavLink>
+      <NavLink
+        href="/student/sorularim"
+        active={active === "sorularim"}
+        onNavigate={closeMenu}
+        icon={<FileQuestion aria-hidden />}
+      >
+        Sorularım
       </NavLink>
     </>
   );
@@ -184,6 +199,14 @@ export function StudentAppHeader({
                     icon={<CalendarRange aria-hidden />}
                   >
                     Ders programı
+                  </NavLink>
+                  <NavLink
+                    href="/student/sorularim"
+                    active={active === "sorularim"}
+                    onNavigate={closeMenu}
+                    icon={<FileQuestion aria-hidden />}
+                  >
+                    Sorularım
                   </NavLink>
                 </div>
                 <div className="mt-auto border-t border-border/60 p-4">

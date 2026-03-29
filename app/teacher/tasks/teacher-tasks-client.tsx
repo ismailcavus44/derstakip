@@ -1,6 +1,6 @@
 "use client";
 
-import { ListTodo, Pencil, PlusIcon, Trash2 } from "lucide-react";
+import { ChevronDown, ListTodo, Pencil, PlusIcon, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   Fragment,
@@ -50,12 +50,17 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { appPanelClassName } from "@/components/app-shell";
+import {
+  DENEME_BRANCH_LABELS,
+  denemeBranchAndTargetFromSubjectSlug,
+} from "@/lib/deneme-exam";
 import { videoCurriculumBySlug } from "@/lib/video-curriculum";
 import { cn } from "@/lib/utils";
 
 const TASK_KIND_ITEMS = [
   { value: "soru_cozumu", label: "Soru çözümü" },
   { value: "konu_anlatimi", label: "Konu anlatımı" },
+  { value: "deneme_sinavi", label: "Deneme sınavı" },
 ] as const;
 
 function formatDate(iso: string) {
@@ -103,7 +108,89 @@ function taskCurriculumLine(t: TaskWithStudent) {
   if (t.topic_name) parts.push(t.topic_name);
   if (t.task_kind === "konu_anlatimi") parts.push("Konu anlatımı");
   else if (t.task_kind === "soru_cozumu") parts.push("Soru çözümü");
+  else if (t.task_kind === "deneme_sinavi") parts.push("Deneme sınavı");
   return parts.length ? parts.join(" · ") : null;
+}
+
+function TaskListItem({
+  t,
+  onEdit,
+  onDelete,
+}: {
+  t: TaskWithStudent;
+  onEdit: (task: TaskWithStudent) => void;
+  onDelete: (id: string) => void;
+}) {
+  const curriculumLine = taskCurriculumLine(t);
+  return (
+    <li>
+      <Card className="rounded-3xl border-border/60">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Öğrenci
+              </p>
+              <p className="truncate font-semibold text-foreground">
+                {t.student_name}
+              </p>
+            </div>
+            <StatusBadge status={t.status} />
+          </div>
+          {curriculumLine && (
+            <p className="text-xs font-medium text-primary">{curriculumLine}</p>
+          )}
+          <p className="text-base font-bold leading-snug">{t.title}</p>
+          <p
+            className={cn(
+              "text-sm leading-relaxed text-muted-foreground",
+              !t.description?.trim() && "italic opacity-70"
+            )}
+          >
+            {t.description?.trim() || "Açıklama yok."}
+          </p>
+          <p className="text-xs text-muted-foreground">{formatDate(t.created_at)}</p>
+          {t.task_kind === "deneme_sinavi" && t.deneme_target_minutes != null && (
+            <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+              Önerilen süre (tavsiye): {t.deneme_target_minutes} dk
+            </p>
+          )}
+          {t.task_kind === "deneme_sinavi" &&
+            t.status === "completed" &&
+            t.deneme_correct != null &&
+            t.deneme_wrong != null &&
+            t.deneme_actual_minutes != null && (
+              <p className="text-xs text-muted-foreground">
+                Öğrenci: {t.deneme_correct} D / {t.deneme_wrong} Y —{" "}
+                {t.deneme_actual_minutes} dk
+              </p>
+            )}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => onEdit(t)}
+            >
+              <Pencil className="mr-1 size-3.5" />
+              Düzenle
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              className="rounded-xl"
+              onClick={() => onDelete(t.id)}
+            >
+              <Trash2 className="mr-1 size-3.5" />
+              Sil
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </li>
+  );
 }
 
 export function TeacherTasksClient({
@@ -119,7 +206,7 @@ export function TeacherTasksClient({
   const [createSubjectId, setCreateSubjectId] = useState<string | null>(null);
   const [createTopicId, setCreateTopicId] = useState<string | null>(null);
   const [createTaskKind, setCreateTaskKind] = useState<
-    "soru_cozumu" | "konu_anlatimi"
+    "soru_cozumu" | "konu_anlatimi" | "deneme_sinavi"
   >("soru_cozumu");
   const [createKey, setCreateKey] = useState(0);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -131,6 +218,15 @@ export function TeacherTasksClient({
   const [editError, setEditError] = useState<string | null>(null);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const pendingTasks = useMemo(
+    () => tasks.filter((t) => t.status === "pending"),
+    [tasks]
+  );
+  const completedTasks = useMemo(
+    () => tasks.filter((t) => t.status === "completed"),
+    [tasks]
+  );
 
   const studentItems = useMemo(
     () =>
@@ -162,6 +258,17 @@ export function TeacherTasksClient({
     () => videoCurriculumBySlug(createSubjectSlug),
     [createSubjectSlug]
   );
+
+  const denemePreview = useMemo(() => {
+    if (!createSubjectSlug) return null;
+    const { branch, targetMinutes } =
+      denemeBranchAndTargetFromSubjectSlug(createSubjectSlug);
+    return {
+      branch,
+      targetMinutes,
+      label: DENEME_BRANCH_LABELS[branch],
+    };
+  }, [createSubjectSlug]);
 
   const isVideoSubject = videoCurriculum !== null;
 
@@ -199,20 +306,22 @@ export function TeacherTasksClient({
       setCreateError("Ders seçin.");
       return;
     }
-    if (isVideoSubject) {
-      if (!videoAnaKonu || !videoAltKonu) {
-        setCreateError("Ana konu ve alt konu / video seçin.");
+    if (createTaskKind !== "deneme_sinavi") {
+      if (isVideoSubject) {
+        if (!videoAnaKonu || !videoAltKonu) {
+          setCreateError("Ana konu ve alt konu / video seçin.");
+          return;
+        }
+        if (!videoResolvedTopicId) {
+          setCreateError(
+            "Seçilen alt konu müfredatta bulunamadı. Supabase’de tarih-video-topics.sql veya cografya-video-topics.sql dosyasını (ders slug’ına göre) çalıştırın."
+          );
+          return;
+        }
+      } else if (!createTopicId) {
+        setCreateError("Konu seçin.");
         return;
       }
-      if (!videoResolvedTopicId) {
-        setCreateError(
-          "Seçilen alt konu müfredatta bulunamadı. Supabase’de tarih-video-topics.sql veya cografya-video-topics.sql dosyasını (ders slug’ına göre) çalıştırın."
-        );
-        return;
-      }
-    } else if (!createTopicId) {
-      setCreateError("Konu seçin.");
-      return;
     }
     if (createTaskKind === "soru_cozumu") {
       const raw = form.querySelector<HTMLInputElement>(
@@ -224,9 +333,15 @@ export function TeacherTasksClient({
         return;
       }
     }
+    /* deneme_sinavi: soru sayısı yok */
     const fd = new FormData(form);
     fd.set("student_id", createStudentId);
-    fd.set("topic_id", effectiveCreateTopicId ?? "");
+    if (createTaskKind === "deneme_sinavi") {
+      fd.set("subject_id", createSubjectId);
+      fd.set("topic_id", "");
+    } else {
+      fd.set("topic_id", effectiveCreateTopicId ?? "");
+    }
     fd.set("task_kind", createTaskKind);
 
     startTransition(async () => {
@@ -323,10 +438,9 @@ export function TeacherTasksClient({
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">Ödev / görev oluştur</DialogTitle>
             <DialogDescription>
-              Öğrenci ve dersi seçin. Tarih ve Coğrafya derslerinde önce ana konu,
-              sonra yalnızca o ana konuya ait alt konu / video seçilir. Diğer
-              derslerde tek konu listesi kullanılır. Görev türüne göre soru sayısını
-              belirleyin.
+              Öğrenci ve dersi seçin. Deneme sınavında yalnızca ders seçilir (konu
+              yok). Diğer görevlerde Tarih ve Coğrafya için önce ana konu, sonra alt
+              konu / video; diğer derslerde tek konu listesi kullanılır.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={onCreateSubmit} className="grid gap-4">
@@ -388,7 +502,13 @@ export function TeacherTasksClient({
               )}
             </div>
             <Fragment key={createSubjectId ?? "no-subject"}>
-              {isVideoSubject && videoCurriculum ? (
+              {createTaskKind === "deneme_sinavi" ? (
+                <p className="rounded-2xl border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs leading-relaxed text-sky-950 dark:text-sky-100">
+                  Bu görev türünde konu seçilmez; sadece ders yeterli. Öğrenci
+                  tamamlarken doğru, yanlış ve süreyi girecek.
+                </p>
+              ) : null}
+              {createTaskKind !== "deneme_sinavi" && isVideoSubject && videoCurriculum ? (
                 <>
                   <div className="grid gap-2">
                     <Label htmlFor="tt-video-ana">Ana konu</Label>
@@ -463,7 +583,7 @@ export function TeacherTasksClient({
                     )}
                   </div>
                 </>
-              ) : (
+              ) : createTaskKind !== "deneme_sinavi" ? (
                 <div className="grid gap-2">
                   <Label htmlFor="tt-topic">Konu</Label>
                   <Select
@@ -490,7 +610,7 @@ export function TeacherTasksClient({
                     </SelectContent>
                   </Select>
                 </div>
-              )}
+              ) : null}
             </Fragment>
             <div className="grid gap-2">
               <Label htmlFor="tt-kind">Görev türü</Label>
@@ -498,7 +618,11 @@ export function TeacherTasksClient({
                 value={createTaskKind}
                 onValueChange={(v) =>
                   setCreateTaskKind(
-                    v === "konu_anlatimi" ? "konu_anlatimi" : "soru_cozumu"
+                    v === "konu_anlatimi"
+                      ? "konu_anlatimi"
+                      : v === "deneme_sinavi"
+                        ? "deneme_sinavi"
+                        : "soru_cozumu"
                   )
                 }
                 items={[...TASK_KIND_ITEMS]}
@@ -509,9 +633,18 @@ export function TeacherTasksClient({
                 <SelectContent>
                   <SelectItem value="soru_cozumu">Soru çözümü</SelectItem>
                   <SelectItem value="konu_anlatimi">Konu anlatımı</SelectItem>
+                  <SelectItem value="deneme_sinavi">Deneme sınavı</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {createTaskKind === "deneme_sinavi" && createSubjectId && denemePreview && (
+              <p className="rounded-2xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs leading-relaxed text-sky-950 dark:text-sky-100">
+                <span className="font-semibold">Önerilen süre (tavsiye): </span>
+                {denemePreview.targetMinutes} dk ({denemePreview.label}). Öğrenci
+                denemeyi bitirince gerçek süresini ve doğru/yanlış sayısını
+                girecek.
+              </p>
+            )}
             {createTaskKind === "soru_cozumu" && (
               <div className="grid gap-2">
                 <Label htmlFor="tt-qcount">Çözülecek soru sayısı</Label>
@@ -573,7 +706,7 @@ export function TeacherTasksClient({
                   !createStudentId ||
                   subjects.length === 0 ||
                   !createSubjectId ||
-                  !effectiveCreateTopicId
+                  (createTaskKind !== "deneme_sinavi" && !effectiveCreateTopicId)
                 }
               >
                 {isPending ? "Gönderiliyor…" : "Ödevi ver"}
@@ -673,72 +806,67 @@ export function TeacherTasksClient({
           </CardContent>
         </Card>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {tasks.map((t) => {
-            const curriculumLine = taskCurriculumLine(t);
-            return (
-            <li key={t.id}>
-              <Card className="rounded-3xl border-border/60">
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Öğrenci
-                      </p>
-                      <p className="truncate font-semibold text-foreground">
-                        {t.student_name}
-                      </p>
-                    </div>
-                    <StatusBadge status={t.status} />
-                  </div>
-                  {curriculumLine && (
-                    <p className="text-xs font-medium text-primary">
-                      {curriculumLine}
-                    </p>
-                  )}
-                  <p className="text-base font-bold leading-snug">{t.title}</p>
-                  <p
-                    className={cn(
-                      "text-sm leading-relaxed text-muted-foreground",
-                      !t.description?.trim() && "italic opacity-70"
-                    )}
-                  >
-                    {t.description?.trim() || "Açıklama yok."}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatDate(t.created_at)}
-                  </p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl"
-                      onClick={() => {
+        <div className="flex flex-col gap-8">
+          {pendingTasks.length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Bekleyen ({pendingTasks.length})
+              </h2>
+              <ul className="flex flex-col gap-3">
+                {pendingTasks.map((t) => (
+                  <TaskListItem
+                    key={t.id}
+                    t={t}
+                    onEdit={(task) => {
+                      setEditError(null);
+                      setEditTask(task);
+                    }}
+                    onDelete={(id) => setDeleteId(id)}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+          {completedTasks.length > 0 && (
+            <details
+              className={cn(
+                "group rounded-3xl border border-border/60 bg-card/50 backdrop-blur-sm",
+                "open:shadow-sm open:ring-1 open:ring-border/40"
+              )}
+            >
+              <summary
+                className={cn(
+                  "flex cursor-pointer list-none items-center justify-between gap-3 rounded-3xl px-4 py-3.5",
+                  "text-left outline-none transition hover:bg-muted/40",
+                  "[&::-webkit-details-marker]:hidden"
+                )}
+              >
+                <span className="text-sm font-semibold text-foreground">
+                  Tamamlanan görevler ({completedTasks.length})
+                </span>
+                <ChevronDown
+                  className="size-5 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180"
+                  aria-hidden
+                />
+              </summary>
+              <div className="border-t border-border/50 px-4 pb-4 pt-2">
+                <ul className="flex flex-col gap-3 pt-2">
+                  {completedTasks.map((t) => (
+                    <TaskListItem
+                      key={t.id}
+                      t={t}
+                      onEdit={(task) => {
                         setEditError(null);
-                        setEditTask(t);
+                        setEditTask(task);
                       }}
-                    >
-                      <Pencil className="mr-1 size-3.5" />
-                      Düzenle
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="destructive"
-                      className="rounded-xl"
-                      onClick={() => setDeleteId(t.id)}
-                    >
-                      <Trash2 className="mr-1 size-3.5" />
-                      Sil
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-            );
-          })}
-        </ul>
+                      onDelete={(id) => setDeleteId(id)}
+                    />
+                  ))}
+                </ul>
+              </div>
+            </details>
+          )}
+        </div>
       )}
 
       <Button

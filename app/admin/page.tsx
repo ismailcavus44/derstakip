@@ -1,8 +1,6 @@
 import { getAdminDashboardData } from "@/app/admin/actions";
 import { AdminPanel } from "@/app/admin/admin-panel";
 
-export const dynamic = "force-dynamic";
-
 export default async function AdminPage() {
   const data = await getAdminDashboardData();
 

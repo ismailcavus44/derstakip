@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -27,6 +27,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -97,6 +99,29 @@ export function AdminPanel({ teachers, students }: Props) {
           öğretmen hesabıyla, öğretmen panelindeki Görevler bölümünden yönetilir.
         </p>
       </div>
+
+      <Card className="rounded-2xl border-primary/25 bg-primary/5">
+        <CardContent className="flex flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              Öğrenci sorularına cevap görseli
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Cevap bekleyen soruları görüntüleyip JPEG/PNG/WebP yüklemek için bu sayfayı
+              kullanın (yalnızca yönetici).
+            </p>
+          </div>
+          <Link
+            href="/admin/ogrenci-sorulari"
+            className={cn(
+              buttonVariants({ variant: "default" }),
+              "inline-flex shrink-0 rounded-xl no-underline"
+            )}
+          >
+            Öğrenci sorularına git
+          </Link>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-3xl border-border/60">
         <CardHeader>

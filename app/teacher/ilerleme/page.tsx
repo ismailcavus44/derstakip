@@ -9,8 +9,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getCachedAuth } from "@/lib/auth/cached-auth";
 import { cn } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
 type PageProps = {
   searchParams?: Promise<{ ogrenci?: string }>;
 };

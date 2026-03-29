@@ -1,6 +1,12 @@
 "use client";
 
-import { BarChart3, Bell, ClipboardList, LayoutDashboard, ListChecks } from "lucide-react";
+import {
+  BarChart3,
+  Bell,
+  ClipboardList,
+  LayoutDashboard,
+  ListChecks,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -81,7 +87,7 @@ export function TeacherDashboard({
               <div className="border-b border-border/60 px-4 py-3">
                 <p className="text-sm font-semibold">Bildirimler</p>
                 <p className="text-xs text-muted-foreground">
-                  Öğrenciler görev tamamladığında burada görünür.
+                  Görev tamamlama ve öğrenci soru yüklemeleri burada görünür.
                 </p>
               </div>
               <div className="max-h-[min(60vh,20rem)] overflow-y-auto">
@@ -110,18 +116,31 @@ export function TeacherDashboard({
                         <p className="mt-1 text-xs text-muted-foreground">
                           {formatDate(n.created_at)}
                         </p>
-                        {!n.read_at && (
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="mt-2 h-8 rounded-full text-xs"
-                            disabled={notifPendingId === n.id || isPending}
-                            onClick={() => markRead(n.id)}
-                          >
-                            {notifPendingId === n.id ? "…" : "Okundu işaretle"}
-                          </Button>
-                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {n.submission_id && (
+                            <Link
+                              href="/teacher/sorular"
+                              className={cn(
+                                buttonVariants({ variant: "outline", size: "sm" }),
+                                "h-8 rounded-full text-xs"
+                              )}
+                            >
+                              Sorulara git
+                            </Link>
+                          )}
+                          {!n.read_at && (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="h-8 rounded-full text-xs"
+                              disabled={notifPendingId === n.id || isPending}
+                              onClick={() => markRead(n.id)}
+                            >
+                              {notifPendingId === n.id ? "…" : "Okundu işaretle"}
+                            </Button>
+                          )}
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -155,7 +174,14 @@ export function TeacherDashboard({
                 >
                   Görevler
                 </Link>
-                ; öğrencilerinizin konu ve soru ilerlemesi için{" "}
+                ; öğrenci soru dosyaları için{" "}
+                <Link
+                  href="/teacher/sorular"
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Sorular
+                </Link>
+                ; konu ve soru ilerlemesi için{" "}
                 <Link
                   href="/teacher/ilerleme"
                   className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"

@@ -1,9 +1,11 @@
+import { getAuthUserEmailById } from "@/lib/supabase/admin";
+
 /**
  * Auth’taki demo adres yerine öğrenciye bildirim gidecek gerçek e-posta.
- * Service role / admin API kullanılmaz.
  *
  * 1) STUDENT_NOTIFY_EMAILS — JSON: { "öğrenci-uuid": "mail@..." }
  * 2) STUDENT_NOTIFY_USER_ID + STUDENT_NOTIFY_EMAIL — tek öğrenci eşlemesi
+ * 3) Aksi halde SUPABASE_SERVICE_ROLE_KEY varsa öğrencinin auth kayıt e-postası
  */
 
 export function getNotificationEmailForStudent(studentId: string): string | null {
@@ -26,4 +28,13 @@ export function getNotificationEmailForStudent(studentId: string): string | null
   if (uid && email && sid === uid) return email;
 
   return null;
+}
+
+/** Görev bildirimi: önce env eşlemesi, yoksa kayıt e-postası (service role gerekir). */
+export async function resolveTaskNotificationEmail(
+  studentId: string
+): Promise<string | null> {
+  const mapped = getNotificationEmailForStudent(studentId);
+  if (mapped) return mapped;
+  return getAuthUserEmailById(studentId);
 }

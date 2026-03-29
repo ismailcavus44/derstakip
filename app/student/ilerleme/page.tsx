@@ -7,8 +7,6 @@ import { StudentAppHeader } from "@/components/student-app-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCachedAuth } from "@/lib/auth/cached-auth";
 
-export const dynamic = "force-dynamic";
-
 export default async function StudentIlerlemePage() {
   const { user, profile, supabase } = await getCachedAuth();
 

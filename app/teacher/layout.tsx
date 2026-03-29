@@ -4,6 +4,8 @@ import { TeacherNav } from "@/app/teacher/teacher-nav";
 import { AppShell } from "@/components/app-shell";
 import { getCachedAuth } from "@/lib/auth/cached-auth";
 
+export const dynamic = "force-dynamic";
+
 export default async function TeacherLayout({
   children,
 }: {
